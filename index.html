@@ -95,7 +95,13 @@ const $=(s,e=document)=>e.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const eur=n=>(+n||0).toLocaleString("fr-FR",{style:"currency",currency:"EUR"});
 const col=n=>collection(db,"teams",code,n);
-const names=k=>S[k].map(x=>x.name);
+/* Listes intégrées à l'appli : visibles par tout le monde, quel que soit le code d'équipe.
+   Modifie ces deux lignes pour changer les noms proposés par défaut. */
+const DEF={
+  banks:["Boursorama","BnP","Fortuneo","BforBank","Revolut"],
+  platforms:["Winamax","Betclic","Unibet","PMU","Pokerstars"]
+};
+const names=k=>[...new Set([...(DEF[k]||[]),...S[k].map(x=>x.name)])];
 
 /* ---------- connexion ---------- */
 function showGate(){stop();$("#app").hidden=true;$("#gate").hidden=false;$("#code").value=""}
@@ -161,7 +167,7 @@ function renderCat(c){
   fp.innerHTML=opts(names(cf.list),cf.lab+"…");fp.value=vp;
   const known=[...new Set([...names("members"),...S.entries.map(e=>e.m)])].sort();
   $("#dl-m").innerHTML=known.map(n=>`<option value="${esc(n)}">`).join("");
-  if(!S[cf.list].length)$("#f-hint").textContent="Ajoute d'abord des "+(c==="bank"?"banques":"plateformes")+" dans l'onglet « Équipe & listes ».";
+  if(!names(cf.list).length)$("#f-hint").textContent="Ajoute d'abord des "+(c==="bank"?"banques":"plateformes")+" dans l'onglet « Équipe & listes ».";
   const es=S.entries.filter(e=>e.c===c);
   const ns=[...new Set([...names("members"),...es.map(e=>e.m)])];
   const rows=ns.map(n=>{const t=totals(es.filter(e=>e.m===n));return `<tr><td>${esc(n)}</td><td class="s-recu">${eur(t.recu)}</td><td class="s-att">${eur(t.att)}</td></tr>`}).join("");
@@ -179,9 +185,14 @@ function renderCat(c){
 }
 
 function listCard(title,key,ph){
+  const d=DEF[key]||[];
+  const chips=[
+    ...d.map(n=>`<span class="chip" style="padding-right:12px">${esc(n)}</span>`),
+    ...S[key].filter(x=>!d.includes(x.name)).map(x=>`<span class="chip">${esc(x.name)}<button class="x" data-del="${key}" data-id="${esc(x.id)}">✕</button></span>`)
+  ];
   return `<div class="card"><h2>${title}</h2>
     <div class="row"><input id="i-${key}" placeholder="${ph}"><button class="pri" data-add="${key}">Ajouter</button></div>
-    <div class="chips">${S[key].length?S[key].map(x=>`<span class="chip">${esc(x.name)}<button class="x" data-del="${key}" data-id="${esc(x.id)}">✕</button></span>`).join(""):`<span class="empty">Aucun élément.</span>`}</div></div>`;
+    <div class="chips">${chips.length?chips.join(""):`<span class="empty">Aucun élément.</span>`}</div></div>`;
 }
 function renderSet(){
   view=null;
