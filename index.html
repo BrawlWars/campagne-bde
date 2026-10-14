@@ -142,7 +142,7 @@ function renderCat(c){
   if(view!==c){
     view=c;
     V.innerHTML=`<div class="card"><h2>Ajouter — ${cf.t}</h2>
-      <div class="row"><select id="f-m"></select><select id="f-p"></select></div>
+      <div class="row"><input id="f-m" list="dl-m" placeholder="Prénom" autocomplete="off"><datalist id="dl-m"></datalist><select id="f-p"></select></div>
       <div class="row"><input id="f-a" type="number" inputmode="decimal" min="0" step="0.01" placeholder="${cf.amt}">
       <select id="f-s">${STAT.map(([k,l])=>`<option value="${k}">${l}</option>`).join("")}</select></div>
       <div class="row"><input id="f-n" placeholder="Note (facultatif)"><button class="pri" id="f-add">Ajouter</button></div>
@@ -150,17 +150,18 @@ function renderCat(c){
       <div class="card"><h2>Par personne</h2><div id="bypers"></div></div>
       <div class="card"><h2>Historique</h2><div id="hist"></div></div>`;
     $("#f-add").onclick=async()=>{
-      const m=$("#f-m").value,p=$("#f-p").value,a=parseFloat($("#f-a").value);
+      const m=$("#f-m").value.trim(),p=$("#f-p").value,a=parseFloat($("#f-a").value);
       if(!m||!p||isNaN(a)){$("#f-hint").textContent="Choisis un prénom, "+cf.lab.toLowerCase()+" et un montant.";return}
       const data={c,m,p,amt:a,st:$("#f-s").value,n:$("#f-n").value.trim(),d:new Date().toISOString().slice(0,10),ts:Date.now()};
-      $("#f-a").value="";$("#f-n").value="";$("#f-hint").textContent="";
+      $("#f-m").value="";$("#f-a").value="";$("#f-n").value="";$("#f-hint").textContent="";
       try{await addDoc(col("entries"),data)}catch(e){onErr(e)}
     };
   }
-  const fm=$("#f-m"),fp=$("#f-p"),vm=fm.value,vp=fp.value;
-  fm.innerHTML=opts(names("members"),"Prénom…");fp.innerHTML=opts(names(cf.list),cf.lab+"…");
-  fm.value=vm;fp.value=vp;
-  $("#f-hint").textContent=(!S.members.length||!S[cf.list].length)?"Ajoute d'abord des prénoms et des "+(c==="bank"?"banques":"plateformes")+" dans l'onglet « Équipe & listes ».":"";
+  const fp=$("#f-p"),vp=fp.value;
+  fp.innerHTML=opts(names(cf.list),cf.lab+"…");fp.value=vp;
+  const known=[...new Set([...names("members"),...S.entries.map(e=>e.m)])].sort();
+  $("#dl-m").innerHTML=known.map(n=>`<option value="${esc(n)}">`).join("");
+  if(!S[cf.list].length)$("#f-hint").textContent="Ajoute d'abord des "+(c==="bank"?"banques":"plateformes")+" dans l'onglet « Équipe & listes ».";
   const es=S.entries.filter(e=>e.c===c);
   const ns=[...new Set([...names("members"),...es.map(e=>e.m)])];
   const rows=ns.map(n=>{const t=totals(es.filter(e=>e.m===n));return `<tr><td>${esc(n)}</td><td class="s-recu">${eur(t.recu)}</td><td class="s-att">${eur(t.att)}</td></tr>`}).join("");
@@ -186,16 +187,21 @@ function renderSet(){
   view=null;
   const V=$("#view"),focus=document.activeElement&&document.activeElement.id,vals={};
   ["members","banks","platforms"].forEach(k=>{const i=$("#i-"+k);if(i)vals[k]=i.value});
-  V.innerHTML=listCard("👥 Membres de l'équipe","members","Prénom")+listCard("🏦 Banques","banks","Nom de la banque")+listCard("⚽ Plateformes de paris","platforms","Nom de la plateforme")+
+  V.innerHTML=listCard("👥 Prénoms (facultatif)","members","Prénoms, séparés par des virgules")+listCard("🏦 Banques","banks","Banques, séparées par des virgules")+listCard("⚽ Plateformes de paris","platforms","Plateformes, séparées par des virgules")+
     `<div class="card"><h2>Code d'équipe</h2><p class="empty">Change de code pour rejoindre une autre équipe ou te déconnecter de cet appareil.</p><button class="sec" id="chg">Changer de code</button></div>`;
   ["members","banks","platforms"].forEach(k=>{if(vals[k])$("#i-"+k).value=vals[k]});
   if(focus&&$("#"+focus))$("#"+focus).focus();
   V.querySelectorAll("[data-add]").forEach(b=>{
     const k=b.dataset.add,inp=$("#i-"+k);
     const add=async()=>{
-      const v=inp.value.trim();if(!v)return;
+      const items=inp.value.split(/[,;\n]+/).map(x=>x.trim()).filter(Boolean);if(!items.length)return;
       inp.value="";
-      if(!names(k).some(x=>x.toLowerCase()===v.toLowerCase())){try{await addDoc(col(k),{name:v})}catch(e){onErr(e)}}
+      const seen=names(k).map(x=>x.toLowerCase());
+      for(const v of items){
+        if(seen.includes(v.toLowerCase()))continue;
+        seen.push(v.toLowerCase());
+        try{await addDoc(col(k),{name:v})}catch(e){onErr(e)}
+      }
     };
     b.onclick=add;inp.onkeydown=e=>{if(e.key==="Enter")add()};
   });
