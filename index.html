@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#4f46e5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="BDE">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<title>Campagne BDE — Suivi</title>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--tx:#1a1d29;--mut:#6b7186;--ac:#4f46e5;--acx:#fff;--bd:#e2e5ef;--ok:#15803d;--wait:#b45309;--del:#b91c1c;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#12141c;--card:#1c1f2b;--tx:#eceef6;--mut:#9aa0b8;--ac:#818cf8;--acx:#10121a;--bd:#2c3040;--ok:#4ade80;--wait:#fbbf24;--del:#f87171;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:720px;margin:0 auto;padding:16px}
+h1{font-size:1.35rem;margin:4px 0 12px}
+h2{font-size:1rem;margin:0 0 10px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:14px}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.kpi{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:10px}
+.kpi small{color:var(--mut);display:block;font-size:.72rem}
+.kpi b{font-size:1.05rem}
+nav{display:flex;gap:6px;margin:12px 0;position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);padding:6px 0;z-index:2}
+nav button{flex:1;padding:10px 6px;border:1px solid var(--bd);background:var(--card);color:var(--tx);border-radius:10px;font:inherit;font-size:.85rem;cursor:pointer}
+nav button.on{background:var(--ac);color:var(--acx);border-color:var(--ac);font-weight:600}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+input,select{font:inherit;padding:9px 10px;border-radius:10px;border:1px solid var(--bd);background:var(--bg);color:var(--tx);min-width:0;flex:1 1 130px}
+button.pri{background:var(--ac);color:var(--acx);border:0;padding:10px 14px;border-radius:10px;font:inherit;font-weight:600;cursor:pointer}
+button.sec{background:none;border:1px solid var(--bd);color:var(--tx);padding:8px 12px;border-radius:10px;font:inherit;cursor:pointer}
+.item{display:flex;align-items:center;gap:8px;padding:9px 0;border-top:1px solid var(--bd)}
+.item:first-child{border-top:0}
+.item .m{flex:1;min-width:0}
+.item .m small{color:var(--mut);display:block}
+.item select{flex:0 0 auto;padding:5px 6px;font-size:.8rem}
+.x{background:none;border:0;color:var(--del);font-size:1.1rem;cursor:pointer;padding:4px 8px}
+.amt{font-weight:600;white-space:nowrap}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.chip{display:inline-flex;align-items:center;background:var(--bg);border:1px solid var(--bd);border-radius:999px;padding:2px 4px 2px 12px;font-size:.9rem}
+.empty{color:var(--mut);font-size:.9rem;margin:6px 0}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+td,th{padding:6px 4px;border-top:1px solid var(--bd);text-align:left}
+th{color:var(--mut);font-weight:500;border-top:0}
+td:not(:first-child),th:not(:first-child){text-align:right}
+.s-recu{color:var(--ok)}.s-att{color:var(--wait)}
+#sync{font-size:.75rem;color:var(--mut);margin:0 0 6px}
+#gate{max-width:420px;margin:12vh auto 0;padding:16px}
+</style>
+</head>
+<body>
+<div id="gate" hidden>
+  <div class="card">
+    <h1>🗳️ Campagne BDE</h1>
+    <p class="empty">Entre le code d'équipe (8 caractères minimum) que vous partagez entre vous. Tous ceux qui utilisent le même code voient les mêmes données.</p>
+    <div class="row"><input id="code" type="password" autocomplete="off" placeholder="Code d'équipe"></div>
+    <div class="row"><button class="pri" id="go">Entrer</button></div>
+    <p class="empty" id="gerr"></p>
+  </div>
+</div>
+<main id="app" hidden>
+  <h1>🗳️ Campagne BDE — Suivi des financements</h1>
+  <p id="sync">Connexion…</p>
+  <div class="kpis" id="kpis"></div>
+  <nav id="nav"></nav>
+  <div id="view"></div>
+</main>
+
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {getAuth, signInAnonymously} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAxVGPcCRkca9GQ9Lm2AsnSMHtXcFcWzRA",
+  authDomain: "campagne-bde-e0bc8.firebaseapp.com",
+  projectId: "campagne-bde-e0bc8",
+  storageBucket: "campagne-bde-e0bc8.firebasestorage.app",
+  messagingSenderId: "358004819258",
+  appId: "1:358004819258:web:f206defc581b48b9a4bc03"
+};
+const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
+
+const CFG={
+  bank:{t:"Parrainages bancaires",list:"banks",lab:"Banque",amt:"Prime (€)"},
+  bet:{t:"Paris sportifs",list:"platforms",lab:"Plateforme",amt:"Gain / bonus (€)"}
+};
+const STAT=[["att","En attente"],["val","Validé"],["recu","Reçu"]];
+const KEYC="bde-team-code";
+let S={members:[],banks:[],platforms:[],entries:[]};
+let tab="bank",view=null,code=localStorage.getItem(KEYC)||"",unsubs=[],ready=false;
+
+const $=(s,e=document)=>e.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const eur=n=>(+n||0).toLocaleString("fr-FR",{style:"currency",currency:"EUR"});
+const col=n=>collection(db,"teams",code,n);
+const names=k=>S[k].map(x=>x.name);
+
+/* ---------- connexion ---------- */
+function showGate(){stop();$("#app").hidden=true;$("#gate").hidden=false;$("#code").value=""}
+function stop(){unsubs.forEach(u=>u());unsubs=[];ready=false;S={members:[],banks:[],platforms:[],entries:[]}}
+function setSync(t){$("#sync").textContent=t}
+const onErr=e=>setSync("⚠️ "+(e.code||"erreur")+" — vérifie les règles Firestore.");
+
+async function start(){
+  stop();view=null;
+  $("#gate").hidden=true;$("#app").hidden=false;setSync("Connexion…");render();
+  try{await signInAnonymously(auth)}catch(e){setSync("⚠️ Connexion impossible : "+(e.code||e.message));return}
+  const ok=()=>{if(!ready){ready=true;setSync("🟢 Données partagées en temps réel")}};
+  ["members","banks","platforms"].forEach(k=>unsubs.push(
+    onSnapshot(query(col(k),orderBy("name")),s=>{S[k]=s.docs.map(d=>({id:d.id,...d.data()}));ok();render()},onErr)));
+  unsubs.push(onSnapshot(query(col("entries"),orderBy("ts","desc")),s=>{S.entries=s.docs.map(d=>({id:d.id,...d.data()}));ok();render()},onErr));
+}
+$("#go").onclick=()=>{
+  const v=$("#code").value.trim();
+  if(v.length<8){$("#gerr").textContent="8 caractères minimum.";return}
+  code=v;localStorage.setItem(KEYC,code);start();
+};
+$("#code").onkeydown=e=>{if(e.key==="Enter")$("#go").click()};
+
+/* ---------- calculs ---------- */
+function totals(list){let recu=0,att=0;list.forEach(e=>{if(e.st==="recu")recu+=+e.amt||0;else att+=+e.amt||0});return{recu,att}}
+
+/* ---------- rendu ---------- */
+function render(){
+  if(!code)return;
+  const tb=totals(S.entries.filter(e=>e.c==="bank")),tt=totals(S.entries.filter(e=>e.c==="bet")),all=totals(S.entries);
+  $("#kpis").innerHTML=
+    `<div class="kpi"><small>Total reçu</small><b class="s-recu">${eur(all.recu)}</b></div>`+
+    `<div class="kpi"><small>À venir</small><b class="s-att">${eur(all.att)}</b></div>`+
+    `<div class="kpi"><small>Banque / Paris</small><b>${eur(tb.recu)} / ${eur(tt.recu)}</b></div>`;
+  $("#nav").innerHTML=[["bank","🏦 Parrainages"],["bet","⚽ Paris"],["set","👥 Équipe & listes"]]
+    .map(([k,l])=>`<button data-t="${k}" class="${tab===k?"on":""}">${l}</button>`).join("");
+  $("#nav").querySelectorAll("button").forEach(b=>b.onclick=()=>{tab=b.dataset.t;view=null;render()});
+  tab==="set"?renderSet():renderCat(tab);
+}
+const opts=(arr,ph)=>`<option value="">${ph}</option>`+arr.map(x=>`<option>${esc(x)}</option>`).join("");
+
+function renderCat(c){
+  const cf=CFG[c],V=$("#view");
+  if(view!==c){
+    view=c;
+    V.innerHTML=`<div class="card"><h2>Ajouter — ${cf.t}</h2>
+      <div class="row"><select id="f-m"></select><select id="f-p"></select></div>
+      <div class="row"><input id="f-a" type="number" inputmode="decimal" min="0" step="0.01" placeholder="${cf.amt}">
+      <select id="f-s">${STAT.map(([k,l])=>`<option value="${k}">${l}</option>`).join("")}</select></div>
+      <div class="row"><input id="f-n" placeholder="Note (facultatif)"><button class="pri" id="f-add">Ajouter</button></div>
+      <p class="empty" id="f-hint"></p></div>
+      <div class="card"><h2>Par personne</h2><div id="bypers"></div></div>
+      <div class="card"><h2>Historique</h2><div id="hist"></div></div>`;
+    $("#f-add").onclick=async()=>{
+      const m=$("#f-m").value,p=$("#f-p").value,a=parseFloat($("#f-a").value);
+      if(!m||!p||isNaN(a)){$("#f-hint").textContent="Choisis un prénom, "+cf.lab.toLowerCase()+" et un montant.";return}
+      const data={c,m,p,amt:a,st:$("#f-s").value,n:$("#f-n").value.trim(),d:new Date().toISOString().slice(0,10),ts:Date.now()};
+      $("#f-a").value="";$("#f-n").value="";$("#f-hint").textContent="";
+      try{await addDoc(col("entries"),data)}catch(e){onErr(e)}
+    };
+  }
+  const fm=$("#f-m"),fp=$("#f-p"),vm=fm.value,vp=fp.value;
+  fm.innerHTML=opts(names("members"),"Prénom…");fp.innerHTML=opts(names(cf.list),cf.lab+"…");
+  fm.value=vm;fp.value=vp;
+  $("#f-hint").textContent=(!S.members.length||!S[cf.list].length)?"Ajoute d'abord des prénoms et des "+(c==="bank"?"banques":"plateformes")+" dans l'onglet « Équipe & listes ».":"";
+  const es=S.entries.filter(e=>e.c===c);
+  const ns=[...new Set([...names("members"),...es.map(e=>e.m)])];
+  const rows=ns.map(n=>{const t=totals(es.filter(e=>e.m===n));return `<tr><td>${esc(n)}</td><td class="s-recu">${eur(t.recu)}</td><td class="s-att">${eur(t.att)}</td></tr>`}).join("");
+  $("#bypers").innerHTML=rows?`<table><tr><th>Prénom</th><th>Reçu</th><th>À venir</th></tr>${rows}</table>`:`<p class="empty">Aucun membre pour l'instant.</p>`;
+  $("#hist").innerHTML=es.length?es.map(e=>`<div class="item" data-id="${esc(e.id)}">
+    <div class="m"><b>${esc(e.m)}</b> · ${esc(e.p)}<small>${esc(e.d||"")}${e.n?" — "+esc(e.n):""}</small></div>
+    <span class="amt">${eur(e.amt)}</span>
+    <select class="st">${STAT.map(([k,l])=>`<option value="${k}"${e.st===k?" selected":""}>${l}</option>`).join("")}</select>
+    <button class="x" title="Supprimer">✕</button></div>`).join(""):`<p class="empty">Rien pour l'instant.</p>`;
+  $("#hist").querySelectorAll(".item").forEach(it=>{
+    const id=it.dataset.id,ref=doc(db,"teams",code,"entries",id);
+    it.querySelector(".st").onchange=ev=>updateDoc(ref,{st:ev.target.value}).catch(onErr);
+    it.querySelector(".x").onclick=()=>deleteDoc(ref).catch(onErr);
+  });
+}
+
+function listCard(title,key,ph){
+  return `<div class="card"><h2>${title}</h2>
+    <div class="row"><input id="i-${key}" placeholder="${ph}"><button class="pri" data-add="${key}">Ajouter</button></div>
+    <div class="chips">${S[key].length?S[key].map(x=>`<span class="chip">${esc(x.name)}<button class="x" data-del="${key}" data-id="${esc(x.id)}">✕</button></span>`).join(""):`<span class="empty">Aucun élément.</span>`}</div></div>`;
+}
+function renderSet(){
+  view=null;
+  const V=$("#view"),focus=document.activeElement&&document.activeElement.id,vals={};
+  ["members","banks","platforms"].forEach(k=>{const i=$("#i-"+k);if(i)vals[k]=i.value});
+  V.innerHTML=listCard("👥 Membres de l'équipe","members","Prénom")+listCard("🏦 Banques","banks","Nom de la banque")+listCard("⚽ Plateformes de paris","platforms","Nom de la plateforme")+
+    `<div class="card"><h2>Code d'équipe</h2><p class="empty">Change de code pour rejoindre une autre équipe ou te déconnecter de cet appareil.</p><button class="sec" id="chg">Changer de code</button></div>`;
+  ["members","banks","platforms"].forEach(k=>{if(vals[k])$("#i-"+k).value=vals[k]});
+  if(focus&&$("#"+focus))$("#"+focus).focus();
+  V.querySelectorAll("[data-add]").forEach(b=>{
+    const k=b.dataset.add,inp=$("#i-"+k);
+    const add=async()=>{
+      const v=inp.value.trim();if(!v)return;
+      inp.value="";
+      if(!names(k).some(x=>x.toLowerCase()===v.toLowerCase())){try{await addDoc(col(k),{name:v})}catch(e){onErr(e)}}
+    };
+    b.onclick=add;inp.onkeydown=e=>{if(e.key==="Enter")add()};
+  });
+  V.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>deleteDoc(doc(db,"teams",code,b.dataset.del,b.dataset.id)).catch(onErr));
+  $("#chg").onclick=()=>{localStorage.removeItem(KEYC);code="";showGate()};
+}
+
+if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
+code?start():showGate();
+</script>
+</body>
+</html>
