@@ -1,5 +1,5 @@
 // Change ce numéro de version pour forcer le rechargement des fichiers (surtout sur iOS)
-const V = "bde-v2";
+const V = "bde-v3";
 const SHELL = ["./", "./index.html", "./manifest.json", "./icon.svg"];
 
 self.addEventListener("install", e => {
