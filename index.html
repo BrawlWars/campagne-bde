@@ -164,6 +164,7 @@ const col=n=>collection(db,"teams",code,n);
 const scol=n=>collection(db,n);                       /* collections partagées (Achats) : sans code d'équipe */
 const colOf=k=>k==="buyTypes"?scol(k):col(k);
 const docOf=(k,id)=>k==="buyTypes"?doc(db,k,id):doc(db,"teams",code,k,id);
+const num=v=>parseFloat(String(v).replace(/[\s€]/g,"").replace(",","."));
 const stLabel=k=>(STAT.find(x=>x[0]===k)||["",k||""])[1];
 const catInfo=id=>DEF.cats.find(c=>c.id===id)||{id,name:String(id).replace(/^x:/,""),icon:"🏷️"};
 function allCats(){
@@ -258,7 +259,7 @@ function renderRev(){
       <div class="card"><h2>Ajouter un revenu</h2>
         <div class="row"><input id="f-m" list="dl-m" placeholder="Prénom" autocomplete="off"><datalist id="dl-m"></datalist></div>
         <div class="row"><select id="f-c"></select><select id="f-p"></select></div>
-        <div class="row"><input id="f-a" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Montant (€)">
+        <div class="row"><input id="f-a" type="text" inputmode="decimal" autocomplete="off" placeholder="Montant (€), ex : 12,50">
         <select id="f-s">${STAT.map(([k,l])=>`<option value="${k}">${l}</option>`).join("")}</select></div>
         <div class="row"><input id="f-n" placeholder="Note (facultatif)"><button class="pri" id="f-add">Ajouter</button></div>
         <p class="empty" id="f-hint"></p></div>
@@ -267,7 +268,7 @@ function renderRev(){
       <div class="card"><h2>Historique</h2><div id="hist"></div></div>`;
     $("#f-c").onchange=refreshOrg;
     $("#f-add").onclick=async()=>{
-      const m=$("#f-m").value.trim(),cid=$("#f-c").value,p=$("#f-p").value,a=parseFloat($("#f-a").value);
+      const m=$("#f-m").value.trim(),cid=$("#f-c").value,p=$("#f-p").value,a=num($("#f-a").value);
       const c=allCats().find(x=>x.id===cid);
       if(!m||!c||isNaN(a)){$("#f-hint").textContent="Entre un prénom, choisis une catégorie et un montant.";return}
       if(c.list&&!p){$("#f-hint").textContent="Choisis aussi : "+c.lab.toLowerCase()+".";return}
@@ -384,14 +385,14 @@ function renderBuy(){
       <div class="card"><h2>Ajouter un achat</h2>
         <div class="row"><input id="b-m" list="dl-b" placeholder="Qui a payé ? (prénom)" autocomplete="off"><datalist id="dl-b"></datalist></div>
         <div class="row"><select id="b-t"></select><input id="b-n" placeholder="Détail (facultatif)"></div>
-        <div class="row"><input id="b-q" type="number" inputmode="numeric" min="1" step="1" value="1" placeholder="Quantité"><input id="b-a" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Coût total (€)"></div>
+        <div class="row"><input id="b-q" type="number" inputmode="numeric" min="1" step="1" value="1" placeholder="Quantité"><input id="b-a" type="text" inputmode="decimal" autocomplete="off" placeholder="Coût total (€), ex : 12,50"></div>
         <div class="row"><button class="pri" id="b-add">Ajouter</button></div>
         <p class="empty" id="b-hint"></p></div>
       <div class="card"><h2>Par type d'achat</h2><div id="b-bytype"></div></div>
       <div class="card"><h2>Par personne</h2><div id="b-byp"></div></div>
       <div class="card"><h2>Historique</h2><div id="b-hist"></div></div>`;
     $("#b-add").onclick=async()=>{
-      const m=$("#b-m").value.trim(),t=$("#b-t").value,a=parseFloat($("#b-a").value),q=parseInt($("#b-q").value,10);
+      const m=$("#b-m").value.trim(),t=$("#b-t").value,a=num($("#b-a").value),q=parseInt($("#b-q").value,10);
       if(!m||!t||isNaN(a)||!(q>=1)){$("#b-hint").textContent="Entre un prénom, choisis un type, une quantité (1 minimum) et un coût.";return}
       const data={m,t,q,n:$("#b-n").value.trim(),amt:a,d:new Date().toISOString().slice(0,10),ts:Date.now()};
       $("#b-m").value="";$("#b-n").value="";$("#b-a").value="";$("#b-q").value="1";$("#b-hint").textContent="";
