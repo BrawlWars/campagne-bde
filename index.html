@@ -50,27 +50,51 @@ td:not(:first-child),th:not(:first-child){text-align:right}
 .s-recu{color:var(--ok)}.s-att{color:var(--wait)}
 #sync,#a-sync{font-size:.75rem;color:var(--mut);margin:0 0 6px}
 #gate{max-width:420px;margin:12vh auto 0;padding:16px}
+.tiles{display:grid;gap:12px;margin-top:8px}
+.tile{display:flex;flex-direction:column;gap:4px;text-align:left;background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:18px;color:var(--tx);font:inherit;cursor:pointer}
+.tile b{font-size:1.15rem}.tile span{color:var(--mut);font-size:.9rem}
+#b-sync,#h-sync{font-size:.75rem;color:var(--mut);margin:0 0 6px}
 </style>
 </head>
 <body>
 <div id="gate" hidden>
   <div class="card">
     <h1>🗳️ Campagne BDE</h1>
-    <p class="empty">Entre le code d'équipe (8 caractères minimum) que vous partagez entre vous. Tous ceux qui utilisent le même code voient les mêmes données.</p>
+    <p class="empty">Code d'équipe pour les <b>financements</b> (8 caractères minimum). Tous ceux qui utilisent le même code voient les mêmes données. L'appli Achats n'a pas besoin de code.</p>
     <div class="row"><input id="code" type="password" autocomplete="off" placeholder="Code d'équipe"></div>
     <div class="row"><button class="pri" id="go">Entrer</button></div>
     <div class="row"><input id="acode" type="password" hidden autocomplete="off" placeholder="Code admin"></div>
-    <div class="row"><button class="sec" id="adm">Accès admin</button></div>
+    <div class="row"><button class="sec" id="adm">Accès admin</button><button class="sec" id="g-home">← Accueil</button></div>
     <p class="empty" id="gerr"></p>
   </div>
 </div>
 
+<main id="home" hidden>
+  <h1>🗳️ Campagne BDE</h1>
+  <p id="h-sync">Connexion…</p>
+  <div class="tiles">
+    <button class="tile" id="t-fin"><b>💶 Financements</b><span>Parrainages bancaires, paris sportifs et autres revenus (code d'équipe)</span></button>
+    <button class="tile" id="t-buy"><b>🛒 Achats</b><span>Qui a payé quoi, en quelle quantité et combien ça a coûté (sans code d'équipe)</span></button>
+  </div>
+  <div class="row" style="margin-top:14px"><button class="sec" id="h-chg">Changer de code (financements)</button><button class="sec" id="h-adm">Accès admin</button></div>
+</main>
+
 <main id="app" hidden>
-  <h1>🗳️ Campagne BDE — Suivi des revenus</h1>
+  <div class="row"><button class="sec" data-home>← Accueil</button></div>
+  <h1>💶 Financements — Suivi des revenus</h1>
   <p id="sync">Connexion…</p>
   <div class="kpis" id="kpis"></div>
   <nav id="nav"></nav>
   <div id="view"></div>
+</main>
+
+<main id="buy" hidden>
+  <div class="row"><button class="sec" data-home>← Accueil</button></div>
+  <h1>🛒 Achats pour le financement</h1>
+  <p id="b-sync">Connexion…</p>
+  <div class="kpis" id="b-kpis"></div>
+  <nav id="b-nav"></nav>
+  <div id="b-view"></div>
 </main>
 
 <main id="admin" hidden>
@@ -109,13 +133,14 @@ const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
 
 /* ===== GOOGLE SHEETS : colle ici l'URL du script (se termine par /exec) et le mot de passe choisi dans le script.
    Laisse url vide pour désactiver l'envoi vers Google Sheets. ===== */
-const SHEET={url:"https://script.google.com/macros/s/AKfycbxA86UYaWZCWrMi2UCmv62CDsgVnVawxdiNbu4gAwj-UOEg4PJuO0Nw2VpZ1sKI2uI4/exec",token:"admin"};
+const SHEET={url:"",token:""};
 
 /* Listes intégrées à l'appli : visibles par tout le monde, quel que soit le code d'équipe.
    Une catégorie avec "list" propose une liste (banques, plateformes) ; les autres n'en ont pas. */
 const DEF={
   banks:["Boursorama","Hello bank!","Fortuneo","BforBank","Revolut","BNP"],
   platforms:["Winamax","Betclic","Unibet","ZEbet","PMU","Parions Sport"],
+  buyTypes:["Alcool","Cigarettes","Snus","Autre"],
   cats:[
     {id:"bank",name:"Parrainages bancaires",icon:"🏦",lab:"Banque",list:"banks"},
     {id:"bet",name:"Paris sportifs",icon:"⚽",lab:"Plateforme",list:"platforms"},
@@ -127,14 +152,18 @@ const DEF={
 const STAT=[["att","En attente"],["val","Validé"],["recu","Reçu"]];
 const KEYC="bde-team-code",KEYA="bde-admin";
 const LISTS=["members","banks","platforms","categories"];
+const SUBS=[...LISTS];
 
-let S={members:[],banks:[],platforms:[],categories:[],entries:[]};
-let tab="rev",curCat="",view=null,code=localStorage.getItem(KEYC)||"",unsubs=[],ready=false,AE=[];
+let S={members:[],banks:[],platforms:[],categories:[],entries:[],buyTypes:[],purchases:[]};
+let usShared=[],mode="gate",btab="list",bview=null,bcur="",tab="rev",curCat="",view=null,code=localStorage.getItem(KEYC)||"",unsubs=[],ready=false,AE=[];
 
 const $=(s,e=document)=>e.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const eur=n=>(+n||0).toLocaleString("fr-FR",{style:"currency",currency:"EUR"});
 const col=n=>collection(db,"teams",code,n);
+const scol=n=>collection(db,n);                       /* collections partagées (Achats) : sans code d'équipe */
+const colOf=k=>k==="buyTypes"?scol(k):col(k);
+const docOf=(k,id)=>k==="buyTypes"?doc(db,k,id):doc(db,"teams",code,k,id);
 const stLabel=k=>(STAT.find(x=>x[0]===k)||["",k||""])[1];
 const catInfo=id=>DEF.cats.find(c=>c.id===id)||{id,name:String(id).replace(/^x:/,""),icon:"🏷️"};
 function allCats(){
@@ -144,7 +173,7 @@ function allCats(){
   return out;
 }
 const names=k=>k==="categories"?allCats().map(c=>c.name):[...new Set([...(DEF[k]||[]),...S[k].map(x=>x.name)])];
-const DEFN=()=>({banks:DEF.banks,platforms:DEF.platforms,categories:DEF.cats.map(c=>c.name)});
+const DEFN=()=>({banks:DEF.banks,platforms:DEF.platforms,buyTypes:DEF.buyTypes,categories:DEF.cats.map(c=>c.name)});
 function totals(list){let recu=0,att=0;list.forEach(e=>{if(e.st==="recu")recu+=+e.amt||0;else att+=+e.amt||0});return{recu,att}}
 
 /* ---------- Google Sheets ---------- */
@@ -156,26 +185,49 @@ function sheetPush(payload){
 }
 
 /* ---------- connexion ---------- */
-function showGate(){stop();$("#admin").hidden=true;$("#app").hidden=true;$("#gate").hidden=false;$("#code").value=""}
-function stop(){unsubs.forEach(u=>u());unsubs=[];ready=false;S={members:[],banks:[],platforms:[],categories:[],entries:[]}}
+function show(w){["gate","home","app","buy","admin"].forEach(i=>$("#"+i).hidden=i!==w);mode=w}
+function showGate(){stop();show("gate");$("#code").value=""}
+function stop(){unsubs.forEach(u=>u());unsubs=[];ready=false;S={...S,members:[],banks:[],platforms:[],categories:[],entries:[]}}
 function setSync(t){$("#sync").textContent=t}
+function setShared(t){["#b-sync","#h-sync"].forEach(i=>{$(i).textContent=t})}
 const onErr=e=>setSync("⚠️ "+(e.code||"erreur")+" — vérifie les règles Firestore.");
 
-async function start(){
-  stop();view=null;
-  $("#gate").hidden=true;$("#admin").hidden=true;$("#app").hidden=false;setSync("Connexion…");render();
-  try{await signInAnonymously(auth)}catch(e){setSync("⚠️ Connexion impossible : "+(e.code||e.message));return}
+const ensureAuth=()=>signInAnonymously(auth);   /* réutilise l'utilisateur anonyme s'il existe déjà */
+
+/* Accueil + données partagées (Achats) : aucune saisie de code */
+async function boot(){
+  show("home");setShared("Connexion…");
+  try{await ensureAuth()}catch(e){setShared("⚠️ Connexion impossible : "+(e.code||e.message));return}
+  usShared.forEach(u=>u());usShared=[];
+  const err=e=>setShared("⚠️ "+(e.code||"erreur")+" — vérifie les règles Firestore.");
+  const okS=()=>setShared("🟢 Connecté");
+  usShared.push(onSnapshot(query(scol("buyTypes"),orderBy("name")),s=>{S.buyTypes=s.docs.map(d=>({id:d.id,...d.data()}));okS();renderAll()},err));
+  usShared.push(onSnapshot(query(scol("purchases"),orderBy("ts","desc")),s=>{S.purchases=s.docs.map(d=>({id:d.id,...d.data()}));okS();renderAll()},err));
+}
+
+/* Financements : nécessite le code d'équipe */
+async function startFin(){
+  stop();view=null;show("app");setSync("Connexion…");render();
+  try{await ensureAuth()}catch(e){setSync("⚠️ Connexion impossible : "+(e.code||e.message));return}
   const ok=()=>{if(!ready){ready=true;setSync("🟢 Données partagées en temps réel"+(SHEET.url?" · Google Sheets actif":""))}};
-  LISTS.forEach(k=>unsubs.push(
-    onSnapshot(query(col(k),orderBy("name")),s=>{S[k]=s.docs.map(d=>({id:d.id,...d.data()}));ok();render()},onErr)));
-  unsubs.push(onSnapshot(query(col("entries"),orderBy("ts","desc")),s=>{S.entries=s.docs.map(d=>({id:d.id,...d.data()}));ok();render()},onErr));
+  SUBS.forEach(k=>unsubs.push(
+    onSnapshot(query(col(k),orderBy("name")),s=>{S[k]=s.docs.map(d=>({id:d.id,...d.data()}));ok();renderAll()},onErr)));
+  unsubs.push(onSnapshot(query(col("entries"),orderBy("ts","desc")),s=>{S.entries=s.docs.map(d=>({id:d.id,...d.data()}));ok();renderAll()},onErr));
 }
 $("#go").onclick=()=>{
   const v=$("#code").value.trim();
   if(v.length<8){$("#gerr").textContent="8 caractères minimum.";return}
-  code=v;localStorage.setItem(KEYC,code);start();
+  code=v;localStorage.setItem(KEYC,code);startFin();
 };
 $("#code").onkeydown=e=>{if(e.key==="Enter")$("#go").click()};
+
+function renderAll(){if(mode==="app")render();else if(mode==="buy")renderBuy()}
+document.querySelectorAll("[data-home]").forEach(b=>b.onclick=()=>show("home"));
+$("#t-fin").onclick=()=>{view=null;code?startFin():showGate()};
+$("#g-home").onclick=()=>show("home");
+$("#h-adm").onclick=()=>{showGate();$("#acode").hidden=false;$("#acode").focus()};
+$("#t-buy").onclick=()=>{bview=null;show("buy");renderBuy()};
+$("#h-chg").onclick=()=>{localStorage.removeItem(KEYC);code="";showGate()};
 
 /* ---------- rendu principal ---------- */
 function render(){
@@ -261,6 +313,25 @@ function renderRev(){
 }
 
 /* ---------- réglages : listes et catégories ---------- */
+function wireLists(V){
+  V.querySelectorAll("[data-add]").forEach(b=>{
+    const k=b.dataset.add,inp=$("#i-"+k);
+    const add=async()=>{
+      const items=inp.value.split(/[,;\n]+/).map(x=>x.trim()).filter(Boolean);if(!items.length)return;
+      inp.value="";
+      const seen=names(k).map(x=>x.toLowerCase());
+      for(const v of items){
+        if(seen.includes(v.toLowerCase()))continue;
+        seen.push(v.toLowerCase());
+        try{await addDoc(colOf(k),{name:v})}catch(e){onErr(e)}
+      }
+    };
+    b.onclick=add;inp.onkeydown=e=>{if(e.key==="Enter")add()};
+  });
+  V.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>deleteDoc(docOf(b.dataset.del,b.dataset.id)).catch(onErr));
+}
+
+
 function listCard(title,key,ph){
   const d=DEFN()[key]||[];
   const chips=[
@@ -282,22 +353,74 @@ function renderSet(){
     `<div class="card"><h2>Code d'équipe</h2><p class="empty">Change de code pour rejoindre une autre équipe ou te déconnecter de cet appareil.</p><button class="sec" id="chg">Changer de code</button></div>`;
   LISTS.forEach(k=>{if(vals[k])$("#i-"+k).value=vals[k]});
   if(focus&&$("#"+focus))$("#"+focus).focus();
-  V.querySelectorAll("[data-add]").forEach(b=>{
-    const k=b.dataset.add,inp=$("#i-"+k);
-    const add=async()=>{
-      const items=inp.value.split(/[,;\n]+/).map(x=>x.trim()).filter(Boolean);if(!items.length)return;
-      inp.value="";
-      const seen=names(k).map(x=>x.toLowerCase());
-      for(const v of items){
-        if(seen.includes(v.toLowerCase()))continue;
-        seen.push(v.toLowerCase());
-        try{await addDoc(col(k),{name:v})}catch(e){onErr(e)}
-      }
-    };
-    b.onclick=add;inp.onkeydown=e=>{if(e.key==="Enter")add()};
-  });
-  V.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>deleteDoc(doc(db,"teams",code,b.dataset.del,b.dataset.id)).catch(onErr));
+  wireLists(V);
   $("#chg").onclick=()=>{localStorage.removeItem(KEYC);code="";showGate()};
+}
+
+/* ---------- application Achats ---------- */
+const sum=l=>l.reduce((a,p)=>a+(+p.amt||0),0);
+const qty=l=>l.reduce((a,p)=>a+(+p.q||1),0);
+function renderBuy(){
+  const V=$("#b-view"),P=S.purchases,types=names("buyTypes");
+  $("#b-kpis").innerHTML=
+    `<div class="kpi"><small>Total dépensé</small><b>${eur(sum(P))}</b></div>`+
+    `<div class="kpi"><small>Articles</small><b>${qty(P)}</b></div>`+
+    `<div class="kpi"><small>Personnes</small><b>${new Set(P.map(p=>p.m)).size}</b></div>`;
+  $("#b-nav").innerHTML=[["list","🛒 Achats"],["set","⚙️ Types d'achat"]]
+    .map(([k,l])=>`<button data-t="${k}" class="${btab===k?"on":""}">${l}</button>`).join("");
+  $("#b-nav").querySelectorAll("button").forEach(b=>b.onclick=()=>{btab=b.dataset.t;bview=null;renderBuy()});
+  if(btab==="set"){
+    bview=null;
+    const focus=document.activeElement&&document.activeElement.id,old=$("#i-buyTypes")?$("#i-buyTypes").value:"";
+    V.innerHTML=listCard("🏷️ Types d'achat","buyTypes","Types, séparés par des virgules");
+    if(old)$("#i-buyTypes").value=old;
+    if(focus&&$("#"+focus))$("#"+focus).focus();
+    wireLists(V);return;
+  }
+  const tAll=[...new Set([...types,...P.map(p=>p.t)])];
+  if(bview!=="list"){
+    bview="list";
+    V.innerHTML=`<div class="pills" id="b-pills"></div>
+      <div class="card"><h2>Ajouter un achat</h2>
+        <div class="row"><input id="b-m" list="dl-b" placeholder="Qui a payé ? (prénom)" autocomplete="off"><datalist id="dl-b"></datalist></div>
+        <div class="row"><select id="b-t"></select><input id="b-n" placeholder="Détail (facultatif)"></div>
+        <div class="row"><input id="b-q" type="number" inputmode="numeric" min="1" step="1" value="1" placeholder="Quantité"><input id="b-a" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Coût total (€)"></div>
+        <div class="row"><button class="pri" id="b-add">Ajouter</button></div>
+        <p class="empty" id="b-hint"></p></div>
+      <div class="card"><h2>Par type d'achat</h2><div id="b-bytype"></div></div>
+      <div class="card"><h2>Par personne</h2><div id="b-byp"></div></div>
+      <div class="card"><h2>Historique</h2><div id="b-hist"></div></div>`;
+    $("#b-add").onclick=async()=>{
+      const m=$("#b-m").value.trim(),t=$("#b-t").value,a=parseFloat($("#b-a").value),q=parseInt($("#b-q").value,10);
+      if(!m||!t||isNaN(a)||!(q>=1)){$("#b-hint").textContent="Entre un prénom, choisis un type, une quantité (1 minimum) et un coût.";return}
+      const data={m,t,q,n:$("#b-n").value.trim(),amt:a,d:new Date().toISOString().slice(0,10),ts:Date.now()};
+      $("#b-m").value="";$("#b-n").value="";$("#b-a").value="";$("#b-q").value="1";$("#b-hint").textContent="";
+      try{await addDoc(scol("purchases"),data)}catch(e){onErr(e)}
+    };
+  }
+  $("#b-pills").innerHTML=`<button class="pill ${bcur===""?"on":""}" data-c="">Tous</button>`+
+    tAll.map(t=>`<button class="pill ${bcur===t?"on":""}" data-c="${esc(t)}">${esc(t)}</button>`).join("");
+  $("#b-pills").querySelectorAll(".pill").forEach(b=>b.onclick=()=>{
+    bcur=b.dataset.c;renderBuy();
+    if(bcur)$("#b-t").value=bcur;
+  });
+  const bt=$("#b-t"),vt=bt.value;
+  bt.innerHTML=`<option value="">Type d'achat…</option>`+tAll.map(t=>`<option>${esc(t)}</option>`).join("");
+  bt.value=tAll.includes(vt)?vt:(bcur||"");
+  const known=[...new Set([...names("members"),...P.map(p=>p.m),...S.entries.map(e=>e.m)])].sort();
+  $("#dl-b").innerHTML=known.map(n=>`<option value="${esc(n)}">`).join("");
+  $("#b-bytype").innerHTML=tAll.length?`<table><tr><th>Type</th><th>Quantité</th><th>Total</th></tr>`+
+    tAll.map(t=>{const l=P.filter(p=>p.t===t);return `<tr><td>${esc(t)}</td><td>${qty(l)}</td><td>${eur(sum(l))}</td></tr>`}).join("")+`</table>`:`<p class="empty">Aucun type d'achat.</p>`;
+  const L=P.filter(p=>!bcur||p.t===bcur);
+  const ns=[...new Set(L.map(p=>p.m))].sort();
+  $("#b-byp").innerHTML=ns.length?`<table><tr><th>Prénom</th><th>Quantité</th><th>Total payé</th></tr>`+
+    ns.map(n=>{const l=L.filter(p=>p.m===n);return `<tr><td>${esc(n)}</td><td>${qty(l)}</td><td>${eur(sum(l))}</td></tr>`}).join("")+`</table>`:`<p class="empty">Aucun achat pour l'instant.</p>`;
+  $("#b-hist").innerHTML=L.length?L.map(p=>`<div class="item" data-id="${esc(p.id)}">
+    <div class="m"><b>${esc(p.m)}</b> · ${esc(p.t)}${(p.q||1)>1?" ×"+(p.q||1):""}<small>${esc(p.d||"")}${(p.q||1)>1?" — "+eur(p.amt/(p.q||1))+" l'unité":""}${p.n?" — "+esc(p.n):""}</small></div>
+    <span class="amt">${eur(p.amt)}</span><button class="x" title="Supprimer">✕</button></div>`).join(""):`<p class="empty">Rien pour l'instant.</p>`;
+  $("#b-hist").querySelectorAll(".item").forEach(it=>{
+    it.querySelector(".x").onclick=()=>deleteDoc(doc(db,"purchases",it.dataset.id)).catch(onErr);
+  });
 }
 
 /* ---------- admin ---------- */
@@ -315,7 +438,7 @@ $("#adm").onclick=async()=>{
 $("#acode").onkeydown=e=>{if(e.key==="Enter")$("#adm").click()};
 $("#aout").onclick=async()=>{
   try{if(auth.currentUser)await deleteDoc(doc(db,"adminSessions",auth.currentUser.uid))}catch(e){}
-  localStorage.removeItem(KEYA);code="";showGate();
+  localStorage.removeItem(KEYA);stop();code=localStorage.getItem(KEYC)||"";show("home");
 };
 $("#a-team").onchange=renderAdmin;$("#a-cat").onchange=renderAdmin;
 $("#asheet").onclick=()=>{
@@ -326,7 +449,7 @@ $("#asheet").onclick=()=>{
 
 async function startAdmin(){
   stop();
-  $("#gate").hidden=true;$("#app").hidden=true;$("#admin").hidden=false;$("#a-sync").textContent="Connexion…";
+  show("admin");$("#a-sync").textContent="Connexion…";
   try{await signInAnonymously(auth)}catch(e){$("#a-sync").textContent="⚠️ Connexion impossible : "+(e.code||e.message);return}
   unsubs.push(onSnapshot(collectionGroup(db,"entries"),s=>{
     AE=s.docs.map(d=>({id:d.id,team:d.ref.parent.parent.id,...d.data()})).sort((a,b)=>(b.ts||0)-(a.ts||0));
@@ -360,7 +483,7 @@ function renderAdmin(){
 }
 
 if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
-localStorage.getItem(KEYA)?startAdmin():code?start():showGate();
+(async()=>{await boot();if(localStorage.getItem(KEYA))startAdmin()})();
 </script>
 </body>
 </html>
